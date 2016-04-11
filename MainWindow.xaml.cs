@@ -81,6 +81,15 @@ namespace Microsoft.Samples.Kinect.ColorBasics
         /// Reader for depth/color/body index frames
         /// </summary>
         private MultiSourceFrameReader multiFrameSourceReader = null;
+        private ushort[] _depthData;
+        private ushort[] _colorData;
+
+        private int bytesPerPixel;
+        private byte[] _colorFrameData;
+        private ColorSpacePoint[] _colorSpacePoints;
+
+
+
         /// <summary>
         /// Initializes a new instance of the MainWindow class.
         /// </summary>
@@ -105,7 +114,7 @@ namespace Microsoft.Samples.Kinect.ColorBasics
 
             // allocate space to put the pixels being received and converted
             this.depthPixels = new byte[this.depthFrameDescription.Width * this.depthFrameDescription.Height];
-
+            this.bytesPerPixel = (PixelFormats.Bgr32.BitsPerPixel + 7) / 8;
             // create the bitmap to display
             this.depthBitmap = new WriteableBitmap(this.depthFrameDescription.Width, this.depthFrameDescription.Height, 96.0, 96.0, PixelFormats.Gray8, null);
 
@@ -382,9 +391,28 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                     return;
                 }
 
+
+                if (_colorFrameData == null)
+                {
+                    int size = colorFrame.FrameDescription.Width * colorFrame.FrameDescription.Height;
+                    _colorFrameData = new byte[size * bytesPerPixel];
+                }
+
                 // Process Depth
 
                 FrameDescription depthFrameDescription = depthFrame.FrameDescription;
+                colorFrame.CopyConvertedFrameDataToArray(_colorFrameData, ColorImageFormat.Bgra);
+
+                uint depthSize = depthFrame.FrameDescription.LengthInPixels;
+                _depthData = new ushort[depthSize];
+                _colorSpacePoints = new ColorSpacePoint[depthSize];
+                // load depth frame into ushort[]
+                depthFrame.CopyFrameDataToArray(_depthData);
+                this.coordinateMapper.MapDepthFrameToColorSpace(_depthData, _colorSpacePoints);
+                // we need a starting point, let's pick 0 for now
+               
+
+
 
                 depthWidth = depthFrameDescription.Width;
                 depthHeight = depthFrameDescription.Height;
@@ -408,10 +436,38 @@ namespace Microsoft.Samples.Kinect.ColorBasics
                                depthFrameData.UnderlyingBuffer,
                                depthFrameData.Size,
                                this.depthMappedToColorPoints);
-                
 
                         this.ProcessDepthFrameData(depthFrameData.UnderlyingBuffer, depthFrameData.Size, depthFrame.DepthMinReliableDistance, maxDepth);
                         depthFrameProcessed = true;
+                    }
+                }
+
+                int index;
+                int[] idxArr;
+                idxArr = new int[] { 56083, 61201, 58131, 56591 };
+                for (int i = 0; i < idxArr.Length; i++)
+                {
+                    index = idxArr[i];
+
+                    ushort depth = _depthData[index];
+                    ColorSpacePoint point = this.depthMappedToColorPoints[index];
+
+                    // round down to the nearest pixel
+                    int colorX = (int)Math.Floor(point.X + 0.5);
+                    int colorY = (int)Math.Floor(point.Y + 0.5);
+
+                    // make sure the pixel is part of the image
+                    if ((colorX >= 0 && (colorX < colorFrame.FrameDescription.Width) && (colorY >= 0) && (colorY < colorFrame.FrameDescription.Height)))
+                    {
+
+                        int colorImageIndex = ((colorFrame.FrameDescription.Width * colorY) + colorX) * bytesPerPixel;
+
+                        byte b = _colorFrameData[colorImageIndex];
+                        byte g = _colorFrameData[colorImageIndex + 1];
+                        byte r = _colorFrameData[colorImageIndex + 2];
+                        byte a = _colorFrameData[colorImageIndex + 3];
+                        Console.WriteLine("{0}, {1}, {2}, {3}, {4}", r, g, b, a, index);
+
                     }
                 }
                 if (depthFrameProcessed)
